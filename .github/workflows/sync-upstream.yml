@@ -1,0 +1,59 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "0 5 * * *"   # 每天 5:00 UTC，在构建之前同步
+  workflow_dispatch:       # 手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "laserduor"
+          git config user.email "312182928+laserduor@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/NousResearch/hermes-agent.git
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main 2>/dev/null || echo "0")
+          echo "behind=${BEHIND}" >> "$GITHUB_OUTPUT"
+          echo "Upstream has ${BEHIND} new commits behind us"
+
+      - name: Merge upstream changes
+        if: steps.check.outputs.behind != '0'
+        run: |
+          # Try fast-forward merge first
+          if git merge upstream/main --no-edit --ff-only 2>/dev/null; then
+            echo "Fast-forward merge succeeded"
+          else
+            echo "Non-fast-forward; creating merge commit (preferring our Dockerfile changes)"
+            git merge upstream/main --no-edit --no-ff -X ours 2>/dev/null || \
+            git merge upstream/main --no-commit 2>/dev/null || true
+            # If there are conflicts, prefer our version for Dockerfile
+            git checkout --ours Dockerfile 2>/dev/null || true
+            git add -A
+            git commit -m "chore: sync upstream $(date +%Y-%m-%d)" --no-edit 2>/dev/null || true
+          fi
+
+      - name: Push to fork
+        if: steps.check.outputs.behind != '0'
+        run: |
+          git push origin main
