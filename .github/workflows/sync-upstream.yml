@@ -26,42 +26,19 @@ jobs:
           git config user.name "laserduor"
           git config user.email "312182928+laserduor@users.noreply.github.com"
 
-      - name: Fetch upstream
-        run: |
-          git remote add upstream https://github.com/NousResearch/hermes-agent.git
-          git fetch upstream main
-
-      - name: Check for new upstream commits
-        id: check
-        run: |
-          BEHIND=$(git rev-list --count HEAD..upstream/main 2>/dev/null || echo "0")
-          echo "behind=${BEHIND}" >> "$GITHUB_OUTPUT"
-          echo "Upstream has ${BEHIND} new commits behind us"
-
       - name: Merge upstream changes
-        if: steps.check.outputs.behind != '0'
+        id: merge
         run: |
-          # Try fast-forward merge first
-          if git merge upstream/main --no-edit --ff-only 2>/dev/null; then
-            echo "Fast-forward merge succeeded"
-          else
-            echo "Non-fast-forward; creating merge commit (preferring our Dockerfile changes)"
-            git merge upstream/main --no-edit --no-ff -X ours 2>/dev/null || \
-            git merge upstream/main --no-commit 2>/dev/null || true
-            # If there are conflicts, prefer our version for Dockerfile
-            git checkout --ours Dockerfile 2>/dev/null || true
-            git add -A
-            git commit -m "chore: sync upstream $(date +%Y-%m-%d)" --no-edit 2>/dev/null || true
-          fi
+          bash scripts/merge-upstream.sh
 
       - name: Push to fork
-        if: steps.check.outputs.behind != '0'
+        if: steps.merge.outcome == 'success'
         run: |
-          git push origin main
-
-      - name: Trigger build workflow
-        if: steps.check.outputs.behind != '0'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run build-and-publish.yml -R ${{ github.repository }}
+          CURRENT=$(git rev-parse HEAD)
+          ORIGINAL=$(git rev-parse origin/main)
+          if [ "$CURRENT" != "$ORIGINAL" ]; then
+            git push origin main
+            echo "Pushed new commits (build workflow will run at 06:00 UTC)"
+          else
+            echo "No new commits to push"
+          fi
