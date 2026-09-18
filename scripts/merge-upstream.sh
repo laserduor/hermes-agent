@@ -4,8 +4,9 @@
 
 set -euo pipefail
 
-# Add upstream remote and fetch
-git remote add upstream https://github.com/NousResearch/hermes-agent.git
+# Add upstream remote and fetch (idempotent: keep working if the remote exists)
+git remote add upstream https://github.com/NousResearch/hermes-agent.git 2>/dev/null ||
+  git remote set-url upstream https://github.com/NousResearch/hermes-agent.git
 git fetch upstream main
 
 BEHIND=$(git rev-list --count HEAD..upstream/main 2>/dev/null || echo "0")
